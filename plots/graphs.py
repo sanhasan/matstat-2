@@ -1,4 +1,4 @@
-"""Графики для оценки параметра Beta(theta, 1) методом моментов."""
+"""Графики результатов эксперимента."""
 
 from pathlib import Path
 
@@ -6,29 +6,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import FuncFormatter
 
-from utils.moment_estimation import MomentEstimationExperiment
-
-
 def _prepare_directory(output_dir: str | Path) -> Path:
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def _sample_sizes(result: MomentEstimationExperiment) -> np.ndarray:
-    return np.array(sorted(result.estimates))
+def _sample_sizes(result: dict) -> np.ndarray:
+    return np.array(sorted(result["results"]))
 
 
-def _plot_points(axis, sizes, values_by_size, label):
+def _plot_points(axis, sizes, results_by_size, label):
     for index, n in enumerate(sizes):
-        values = values_by_size[int(n)]
+        results = results_by_size[int(n)]
+        point_label = None
+        if index == 0:
+            point_label = label
+
         axis.scatter(
-            np.full(values.shape, n),
-            values,
+            np.full(results.shape, n),
+            results,
             color="tab:purple",
             alpha=0.24,
             s=18,
-            label=label if index == 0 else None,
+            label=point_label,
         )
 
 
@@ -47,7 +48,8 @@ def _format_sample_size_axis(axis, sizes: np.ndarray) -> None:
 
 
 def _save_statistic_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
     sample_values: np.ndarray,
     theoretical_values: np.ndarray,
     ylabel: str,
@@ -72,14 +74,14 @@ def _save_statistic_plot(
         _plot_points(
             estimate_axis,
             sizes,
-            result.estimates,
+            result["results"],
             "отдельные оценки",
         )
         estimate_axis.axhline(
-            result.theta,
+            theta,
             color="black",
             linestyle=":",
-            label=rf"истинное $\theta={result.theta:g}$",
+            label=rf"истинное $\theta={theta:g}$",
         )
         estimate_axis.set_ylabel(r"оценка $\widehat{\theta}_n$")
         estimate_axis.legend()
@@ -99,7 +101,7 @@ def _save_statistic_plot(
         theoretical_values,
         "s--",
         color="tab:orange",
-        label="точное теоретическое значение",
+        label="асимптотическое значение",
     )
     statistic_axis.set_xlabel("объём выборки n")
     statistic_axis.set_ylabel(ylabel)
@@ -141,21 +143,25 @@ def save_beta_density_plot(
 
 
 def save_estimator_benchmark_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
     output_dir: str | Path = "images/moment_estimation",
 ) -> Path:
     """Показать отдельные оценки, их среднее и истинное значение."""
 
     output = _prepare_directory(output_dir)
     sizes = _sample_sizes(result)
-    sample_means = np.array(
-        [result.estimates[int(n)].mean() for n in sizes]
-    )
-    repetitions = len(result.estimates[int(sizes[0])])
+    sample_means = []
+    for n in sizes:
+        mean = result["results"][int(n)].mean()
+        sample_means.append(mean)
+    sample_means = np.array(sample_means)
+
+    repetitions = len(result["results"][int(sizes[0])])
 
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, axis = plt.subplots(figsize=(9, 5.2))
-    _plot_points(axis, sizes, result.estimates, "отдельные оценки")
+    _plot_points(axis, sizes, result["results"], "отдельные оценки")
     axis.plot(
         sizes,
         sample_means,
@@ -165,11 +171,11 @@ def save_estimator_benchmark_plot(
         label=f"среднее по {repetitions} оценкам",
     )
     axis.axhline(
-        result.theta,
+        theta,
         color="black",
         linestyle=":",
         linewidth=2,
-        label=rf"теоретическое значение $\theta={result.theta:g}$",
+        label=rf"теоретическое значение $\theta={theta:g}$",
     )
     axis.set_xlabel("объём выборки n")
     axis.set_ylabel(r"оценка $\widehat{\theta}_n$")
@@ -185,72 +191,102 @@ def save_estimator_benchmark_plot(
 
 
 def save_bias_comparison_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
     output_dir: str | Path = "images/moment_estimation",
 ) -> Path:
-    """Сравнить выборочное и точное теоретическое смещение."""
+    """Сравнить смещение в эксперименте и его асимптотику."""
 
     sizes = _sample_sizes(result)
-    sample_bias = np.array(
-        [result.estimates[int(n)].mean() - result.theta for n in sizes]
-    )
+    experiment_bias = []
+    asymptotic_bias = []
+    for n in sizes:
+        n = int(n)
+        mean_theta_hat = result["results"][n].mean()
+        bias = mean_theta_hat - theta
+        experiment_bias.append(bias)
+
+        bias = result["theory"][n]["bias"]
+        asymptotic_bias.append(bias)
+
+    experiment_bias = np.array(experiment_bias)
+    asymptotic_bias = np.array(asymptotic_bias)
+
     return _save_statistic_plot(
         result,
-        sample_bias,
-        np.array([result.theoretical[int(n)].bias for n in sizes]),
+        theta,
+        experiment_bias,
+        asymptotic_bias,
         "смещение",
-        rf"Смещение оценки, $\theta={result.theta:g}$",
+        rf"Смещение оценки, $\theta={theta:g}$",
         "bias.png",
-        "выборочное смещение",
+        "смещение по результатам эксперимента",
         output_dir,
     )
 
 
 def save_variance_comparison_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
     output_dir: str | Path = "images/moment_estimation",
 ) -> Path:
-    """Показать отдельные оценки и выборочную дисперсию."""
+    """Показать отдельные оценки и выборочную дисперсию S_M^2."""
 
     sizes = _sample_sizes(result)
-    sample_variance = np.array(
-        [result.estimates[int(n)].var(ddof=1) for n in sizes]
-    )
+    sample_variance = []
+    theoretical_variance = []
+    for n in sizes:
+        n = int(n)
+        variance = result["results"][n].var(ddof=0)
+        sample_variance.append(variance)
+        theoretical_variance.append(
+            result["theory"][n]["variance"]
+        )
+
+    sample_variance = np.array(sample_variance)
+    theoretical_variance = np.array(theoretical_variance)
+
     return _save_statistic_plot(
         result,
+        theta,
         sample_variance,
-        np.array([result.theoretical[int(n)].variance for n in sizes]),
+        theoretical_variance,
         "дисперсия",
-        rf"Дисперсия оценки, $\theta={result.theta:g}$",
+        rf"Дисперсия оценки, $\theta={theta:g}$",
         "variance.png",
-        "выборочная дисперсия",
+        r"$S_M^2$ по результатам эксперимента",
         output_dir,
         show_estimates=True,
     )
 
 
 def save_mse_comparison_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
     output_dir: str | Path = "images/moment_estimation",
 ) -> Path:
-    """Сравнить выборочную и точную теоретическую MSE."""
+    """Сравнить MSE в эксперименте и её асимптотику."""
 
     sizes = _sample_sizes(result)
-    sample_mse = np.array(
-        [
-            np.mean((result.estimates[int(n)] - result.theta) ** 2)
-            for n in sizes
-        ]
-    )
-    theoretical_mse = np.array(
-        [result.theoretical[int(n)].mse for n in sizes]
-    )
+    sample_mse = []
+    theoretical_mse = []
+    for n in sizes:
+        n = int(n)
+        errors = result["results"][n] - theta
+        mse = np.mean(errors**2)
+        sample_mse.append(mse)
+        theoretical_mse.append(result["theory"][n]["mse"])
+
+    sample_mse = np.array(sample_mse)
+    theoretical_mse = np.array(theoretical_mse)
+
     return _save_statistic_plot(
         result,
+        theta,
         sample_mse,
         theoretical_mse,
         "MSE",
-        rf"Среднеквадратическая ошибка, $\theta={result.theta:g}$",
+        rf"Среднеквадратическая ошибка, $\theta={theta:g}$",
         "mse.png",
         "выборочная MSE",
         output_dir,
@@ -258,24 +294,25 @@ def save_mse_comparison_plot(
 
 
 def save_estimate_distributions_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
     output_dir: str | Path = "images/moment_estimation",
 ) -> Path:
     """Построить распределения оценки для трёх объёмов выборки."""
 
     output = _prepare_directory(output_dir)
-    sizes = sorted(result.estimates)
+    sizes = sorted(result["results"])
     selected_sizes = [sizes[0], sizes[len(sizes) // 2], sizes[-1]]
 
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     for axis, n in zip(axes, selected_sizes):
-        axis.hist(result.estimates[n], bins=15, alpha=0.75)
+        axis.hist(result["results"][n], bins=15, alpha=0.75)
         axis.axvline(
-            result.theta,
+            theta,
             color="black",
             linestyle="--",
-            label=rf"истинное $\theta={result.theta:g}$",
+            label=rf"истинное $\theta={theta:g}$",
         )
         axis.set_title(f"n = {n}")
         axis.set_xlabel(r"$\widehat{\theta}$")
@@ -290,23 +327,24 @@ def save_estimate_distributions_plot(
 
 
 def save_threshold_exceedance_plot(
-    result: MomentEstimationExperiment,
+    result: dict,
+    theta: float,
+    threshold: float,
     output_dir: str | Path = "images/moment_estimation",
 ) -> Path:
     """Показать отдельные оценки и выборочную долю превышений."""
 
     output = _prepare_directory(output_dir)
     sizes = _sample_sizes(result)
-    counts = np.array(
-        [
-            np.count_nonzero(
-                np.abs(result.estimates[int(n)] - result.theta)
-                > result.threshold
-            )
-            for n in sizes
-        ]
-    )
-    repetitions = len(result.estimates[int(sizes[0])])
+    counts = []
+    for n in sizes:
+        n = int(n)
+        errors = np.abs(result["results"][n] - theta)
+        count = np.count_nonzero(errors > threshold)
+        counts.append(count)
+    counts = np.array(counts)
+
+    repetitions = len(result["results"][int(sizes[0])])
 
     plt.style.use("seaborn-v0_8-whitegrid")
     fig, (estimate_axis, share_axis) = plt.subplots(
@@ -319,18 +357,18 @@ def save_threshold_exceedance_plot(
     _plot_points(
         estimate_axis,
         sizes,
-        result.estimates,
+        result["results"],
         "отдельные оценки",
     )
     estimate_axis.axhline(
-        result.theta,
+        theta,
         color="black",
         linestyle=":",
-        label=rf"истинное $\theta={result.theta:g}$",
+        label=rf"истинное $\theta={theta:g}$",
     )
     estimate_axis.axhspan(
-        result.theta - result.threshold,
-        result.theta + result.threshold,
+        theta - threshold,
+        theta + threshold,
         color="tab:green",
         alpha=0.12,
         label="допустимый интервал",
@@ -361,7 +399,7 @@ def save_threshold_exceedance_plot(
     share_axis.legend()
     _format_sample_size_axis(share_axis, sizes)
     fig.suptitle(
-        rf"$|\widehat{{\theta}}-\theta|>{result.threshold:g}$"
+        rf"$|\widehat{{\theta}}-\theta|>{threshold:g}$"
     )
     fig.tight_layout()
 
