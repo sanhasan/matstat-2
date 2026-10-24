@@ -293,39 +293,6 @@ def save_mse_comparison_plot(
     )
 
 
-def save_estimate_distributions_plot(
-    result: dict,
-    theta: float,
-    output_dir: str | Path = "images/moment_estimation",
-) -> Path:
-    """Построить распределения оценки для трёх объёмов выборки."""
-
-    output = _prepare_directory(output_dir)
-    sizes = sorted(result["results"])
-    selected_sizes = [sizes[0], sizes[len(sizes) // 2], sizes[-1]]
-
-    plt.style.use("seaborn-v0_8-whitegrid")
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    for axis, n in zip(axes, selected_sizes):
-        axis.hist(result["results"][n], bins=15, alpha=0.75)
-        axis.axvline(
-            theta,
-            color="black",
-            linestyle="--",
-            label=rf"истинное $\theta={theta:g}$",
-        )
-        axis.set_title(f"n = {n}")
-        axis.set_xlabel(r"$\widehat{\theta}$")
-        axis.legend()
-    fig.suptitle("Распределение оценки")
-    fig.tight_layout()
-
-    path = output / "estimate_distributions.png"
-    fig.savefig(path, dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    return path
-
-
 def save_threshold_exceedance_plot(
     result: dict,
     theta: float,
